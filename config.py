@@ -8,18 +8,17 @@ import torch as _torch
 SEED = 42
 
 DEVICE = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+
 # ——— Problem selector ———
-# One of: 'AC3D', 'CH3D', 'SH3D', 'MBE3D', 'PFC3D'
-PROBLEM = 'AC3D'   # <- set here when you want Swift–Hohenberg
+# One of: 'AC3D', 'CH3D', 'SH3D'
+PROBLEM = 'AC3D'
+
 # ——— Model ———
-#"DeepONet3D_TNOPhysics", UNO3d, UNet3d, UFNO3d, 'DeepONet3D_Robust', , 'TNO3d' or 'FNO4d', 'FFNO4d', 'MHNO_FFNO'
-# 'FNO_PMNO'--> fails for CH;
+#"UNO3d, UNet3d, UFNO3d, 'DeepONet3D_Robust', or 'FNO4d', 'FFNO4d', 'HAMNO3d'
 MODEL = 'HAMNO3d'
-BC_TYPE = "neumann"   # "periodic" or "neumann" PhysicsResidualTNO3d_AC, 'TNO3d_PureRobust', 'MambaNO3d', 'HMNO3dPlus','HAMNO3d'
-Training_Type = "PurePhysics" # "PurePhysics" , "Teacher_Based" ---> PENCO
 
 
-## DeepONet hyperparameters
+## DeepONet (DeepONet3D_Robust) hyperparameters
 
 DEEPONET_WIDTH = 64
 DEEPONET_BRANCH_DEPTH = 4
@@ -170,12 +169,8 @@ else:
     LEARNING_RATE = 1e-3
 
 T_IN_CHANNELS = 5 # number of past frames the model sees
-#T_OUT = 1 # 96 # 1 # 96 # 96 + 5 - 1 = 100 # determines how much future the model predicts
+T_OUT = 1
 
-if MODEL in ("DeepONet_PMNO", "TNO3d", "FNO_PMNO", "DeepONet3D_TNOPhysics"):
-    T_OUT = 1
-else:
-    T_OUT = 1
 
 
 if PROBLEM == 'CH3D':
@@ -187,13 +182,8 @@ elif MODEL == 'HAMNO3d' and PROBLEM == 'SH3D':
 else:
     WEIGHT_DECAY =   5e-6 # 5e-6 # 1e-5 #
 
-#AC:  LR=0.01, WD=0.001, WIDTH_Q=12, WIDTH_H=10, MODES=12, WIDTH=12, N_LAYERS=2, EXP=2, EPOCHS=50, BATCH_SIZE=8 --> mean: 2.15%
-#CH:  LR=0.0005, WD=5e-06,: mean=4.2341e-02
 PDE_WEIGHT = 1.0
-
-N_TRAIN = 50 # 50 # 200 # 200 # 50 # 200 #
-
-
+N_TRAIN = 50 # 50 #  100 # 200
 
 N_TEST_FIXED = 50 #50 AC, 100 # 100 # 100             # <- constant, test set size is fixed now
 TEST_MODE = 'manual'   # or 'manual'
@@ -206,6 +196,3 @@ TRAIN_TMAX = 50 # 100 # Training capped at {favorite frame: 50}, rollout tested 
 EVAL_TIME_FRAMES = [0, 50, 100]
 #EVAL_TIME_FRAMES = [25, 50, 75, 100]
 #EVAL_TIME_FRAMES = [20, 40, 60, 80, 100]
-
-
-
