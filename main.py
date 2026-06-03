@@ -2,7 +2,7 @@ import os  # <- minimal addition
 import torch, numpy as np, random
 import config
 from networks import FNO4d, TNO3d, FFNO4d, MHNO_FFNO, DeepONet3D_Robust
-from Trainer import build_loaders, train_fno_hybrid, evaluate_stats_and_plot, warmstart_ac_numerical_init #, train_ac_beamstyle, train_ch_beamstyle,train_sh_beamstyle
+from Trainer import build_loaders, train_fno_hybrid, evaluate_stats_and_plot #, train_ac_beamstyle, train_ch_beamstyle,train_sh_beamstyle
 
 #from Trainer_out_rollout import build_loaders, train_fno_hybrid, evaluate_stats_and_plot #, train_ac_beamstyle, train_ch_beamstyle,train_sh_beamstyle
 
@@ -268,12 +268,6 @@ def main():
 
     # Data
     train_loader, test_loader, test_ids, normalizers = build_loaders()
-
-    warmstart_ac_numerical_init(model, train_loader, config.DEVICE)
-    # How many optimizer updates will we run?
-    #STEPS_PER_EPOCH = getattr(config, "STEPS_PER_EPOCH", 20)
-    #TOTAL_STEPS = config.EPOCHS * STEPS_PER_EPOCH
-    # How many optimizer updates will we run?
     base_steps = getattr(config, "STEPS_PER_EPOCH", 20)
 
     N_ref = max(1, int(getattr(config, "N_TRAIN_REF", 50)))

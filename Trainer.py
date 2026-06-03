@@ -9,58 +9,15 @@ from torch.cuda.amp import autocast
 from pathlib import Path
 
 import math
-from functions import (
-    semi_implicit_step, energy_penalty,
-    # ---- SH additions ----
-    semi_implicit_step_sh,                    # SH semi-implicit teacher step
-    physics_collocation_tau_L2_SH,            # SH collocation residual (L2)
-    energy_penalty_sh,                        # SH energy hinge
-    low_k_mse,
-    # ---- PFC additions ----
-    semi_implicit_step_pfc,
-    physics_collocation_tau_L2_PFC,
-    energy_penalty_pfc,
-    semi_implicit_step_mbe,
-    physics_collocation_tau_L2_MBE, mass_project_pred,
-    energy_penalty_mbe,
 
-    # ---- AC3D Block Neumann ----
-    semi_implicit_step_AC_neumann,
-    physics_collocation_multi_rule_AC_neumann,
-    scheme_loss_AC_neumann_energy_metric,
-    energy_dissipation_match_AC_neumann,
+from functions import weak_form_AC_gauss
+from functions import ac_physical_gauss_single_step
+from functions import ac_weak_fe_loss_tetra_neumann
+from functions import ch_weak_fe_loss_tetra_neumann
+from functions import physics_collocation_tau_L2_SH_neumann,semi_implicit_step_sh_neumann, energy_penalty_sh_neumann, low_k_mse_neumann
+from functions import  mixed_form_CH_physical_gauss_single_step
+from functions import mixed_form_SH_physical_gauss_single_step, sh_weak_fe_loss_tetra_neumann
 
-    # ---- CH3D Neumann ----
-    # ---- NEW CH3D Neumann additions ----
-    semi_implicit_step_CH_neumann,
-    physics_collocation_tau_L2_CH_neumann,
-    physics_collocation_multi_rule_CH_neumann,
-    scheme_loss_CH_neumann_energy_metric,
-    energy_dissipation_match_CH_neumann,
-
-semi_implicit_step_AC_neumann,
-    physics_collocation_multi_rule_AC_neumann,
-    scheme_loss_AC_neumann_energy_metric,
-    energy_dissipation_match_AC_neumann,
-
-
-    pde_rhs_ac_neumann,
-ac_weak_collocation_residual_neumann,
-ac_rollout_residual_neumann,
-physics_collocation_tau_L2_AC_neumann_twopoints,
-physics_collocation_multi_rule_AC_neumann_rollout,
-    ac_gradient_flow_alignment_loss,
-    ac_gradient_flow_alignment_loss_weighted,
-project_neumann_cosine,
-
-ch_rollout_residual_neumann,
-    physics_collocation_tau_L2_CH_neumann_twopoints,physics_collocation_random_AC_neumann,physics_collocation_random_CH_neumann,
-
-)
-from functions import weak_form_AC_gauss, energy_AC_gauss
-from functions import ac_strong_form_gauss_lobatto_loss_neumann, ac_energy_decay_loss_tetra_exact, ac_physical_gauss_single_step, ac_incremental_energy_loss_tetra_exact, ac_true_incremental_energy_matching_loss
-from functions import ac_weak_fe_loss_tetra_neumann_fully_analytic, ac_weak_fe_loss_hex_q1_neumann_analytic, low_k_mse_neumann, ac_variational_residual_modes_neumann, ac_variational_galerkin_loss_neumann, ac_weak_fe_loss_tetra_neumann
-from functions import mixed_form_CH_physical_gauss_single_step, ch_weak_fe_loss_tetra_neumann
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -287,96 +244,6 @@ def rollout_block_from_one_step_model(model, x, T_out):
 
     return torch.cat(preds, dim=-1)           # (B,S,S,S,T_out)
 
-def warmstart_ac_numerical_init(model, train_loader, device):
-    """
-    Short physics-consistent warm start for AC3D.
-
-    Goal:
-        initialize the model so that its first-step prediction matches
-        one semi-implicit AC Neumann numerical step.
-
-    This does NOT change the architecture and does NOT change the final loss.
-    It is only a short pretraining stage before normal training.
-
-    Works for:
-        - MODEL == 'FNO_PMNO'
-        - MODEL == 'TNO3d'
-
-    For FNO_PMNO:
-        warm-start the underlying one-step backbone model.fno
-
-    For TNO3d:
-        warm-start the first predicted step model(x)[..., 0:1]
-    """
-    if config.PROBLEM != 'AC3D':
-        print("[WarmStart] Skipped: only implemented for AC3D.")
-        return
-
-    if not getattr(config, "USE_NUMERICAL_WARMSTART", False):
-        print("[WarmStart] Disabled.")
-        return
-
-    warm_epochs = int(getattr(config, "WARMSTART_EPOCHS", 0))
-    if warm_epochs <= 0:
-        print("[WarmStart] No warm-start epochs requested.")
-        return
-
-    print(f"[WarmStart] Starting AC numerical warm start for {warm_epochs} epochs...")
-
-    # separate optimizer only for warm-start
-    warm_optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=getattr(config, "WARMSTART_LR", 5e-4),
-        weight_decay=getattr(config, "WEIGHT_DECAY", 1e-5),
-    )
-
-    model.train()
-
-    steps_per_epoch = getattr(config, "STEPS_PER_EPOCH_EFF", getattr(config, "STEPS_PER_EPOCH", 20))
-    train_iter = cycle(train_loader)
-
-    for ep in range(warm_epochs):
-        loss_acc = 0.0
-
-        for _ in range(steps_per_epoch):
-            x, _ = next(train_iter)
-            x = x.to(device, non_blocking=True)
-
-            # last observed frame
-            u_in_last = x[..., -1:]   # (B,S,S,S,1)
-
-            # numerical one-step target
-            with torch.no_grad():
-                u_num = semi_implicit_step_AC_neumann(
-                    u_in_last,
-                    config.DT,
-                    config.DX,
-                    config.EPS2,
-                )[..., 0:1]  # keep only first numerical step
-
-            warm_optimizer.zero_grad(set_to_none=True)
-
-            # one-step model prediction
-            if config.MODEL == 'FNO_PMNO':
-                # warm-start the one-step backbone
-                pred = model.fno(x)   # (B,S,S,S,1)
-            elif config.MODEL == 'TNO3d':
-                pred = model(x)[..., 0:1]   # first predicted step only
-            else:
-                # fallback: use first predicted step if model returns T_out
-                pred_full = model(x)
-                pred = pred_full[..., 0:1] if pred_full.shape[-1] > 1 else pred_full
-
-            loss_ws = F.mse_loss(pred, u_num)
-            loss_ws.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            warm_optimizer.step()
-
-            loss_acc += loss_ws.item()
-
-        print(f"[WarmStart] Epoch {ep+1:3d}/{warm_epochs} | loss = {loss_acc / steps_per_epoch:.6e}")
-
-    print("[WarmStart] Done.\n")
 
 
 # Save model helper funtion
@@ -386,9 +253,9 @@ def make_model_save_path():
     Build a clean checkpoint path using selected config values.
 
     Example:
-    Trail_Error_models/AC3D_HAMNO3d_pde0p25_fine64_fw0p5.pt
+    Trained_Models/AC3D_HAMNO3d_pde0p25_fine64_fw0p5.pt
     """
-    save_dir = Path("Trail_Error_models")
+    save_dir = Path("Trained_Models")
     save_dir.mkdir(parents=True, exist_ok=True)
 
     def clean_float(x):
@@ -451,212 +318,38 @@ def train_fno_hybrid(model, train_loader, test_loader, optimizer, scheduler, dev
             y_hat = y_pred
             loss_data = F.mse_loss(y_pred, y)
 
-            # Correct
+
             if USE_SH:
-                if config.Training_Type in ("PurePhysics"):
-                    from functions import mixed_form_SH_physical_gauss_single_step, sh_weak_fe_loss_tetra_neumann
-                    y_hat = y_pred
-                    # ---------- first predicted step ----------
-                    y_first = y_hat[..., 0:1]
-                    # SH is 4th order, so use mixed/split form exactly like CH
-                    loss_strong_raw, loss_u, loss_q  =  mixed_form_SH_physical_gauss_single_step(u_in_last,y_first,config.DT,config.DX,config.EPSILON_PARAM,tau=0.5, normalize=True,robust=False)
-                    loss_strong_mixed = 0.005 * loss_strong_raw
+                y_hat = y_pred
+                # ---------- first predicted step ----------
+                y_first = y_hat[..., 0:1]
+                # SH is 4th order, so use mixed/split form like CH
+                loss_strong_raw, loss_u, loss_q  =  mixed_form_SH_physical_gauss_single_step(u_in_last,y_first,config.DT,config.DX,config.EPSILON_PARAM,tau=0.5, normalize=True,robust=False)
+                loss_strong= 0.005 * loss_strong_raw
 
-                    loss_weak_raw, weak_u, weak_p = sh_weak_fe_loss_tetra_neumann(u_in_last, y_first,config.DT,config.DX,config.EPSILON_PARAM,tau=0.5, normalize=True, robust=False,p_weight=1.0, return_parts=True)
-                    loss_weak =  0.005 *  loss_weak_raw
+                loss_weak_raw, weak_u, weak_p = sh_weak_fe_loss_tetra_neumann(u_in_last, y_first,config.DT,config.DX,config.EPSILON_PARAM,tau=0.5, normalize=True, robust=False,p_weight=1.0, return_parts=True)
+                loss_weak =  0.005 *  loss_weak_raw
+                # ---------- total SH physics ----------
+                loss_phys = (loss_strong + loss_weak)
 
-                    # Non-Dimenssional physics
-                    ''''
-                    u0_pde = nondim_u(u_in_last)
-                    u1_pde = nondim_u(y_first)
-                    dx_pde, dt_pde, eps2_pde, eps_pde = dim_params()
-
-                    loss_strong_raw, loss_u, loss_q = mixed_form_SH_physical_gauss_single_step(u0_pde, u1_pde, dt_pde, dx_pde, eps_pde, tau=0.5, normalize=True, robust=False)
-                    loss_weak_raw, weak_u, weak_p = sh_weak_fe_loss_tetra_neumann(u0_pde, u1_pde, dt_pde, dx_pde, eps_pde, tau=0.5, normalize=True, robust=False, p_weight=1.0, return_parts=True)
-
-                    loss_strong_mixed = 0.005 * loss_strong_raw
-                    loss_weak = 0.005 * loss_weak_raw
-                    '''
-
-                    # ---------- total SH physics ----------
-                    loss_phys = (loss_strong_mixed + loss_weak)
-                    loss_energy = torch.zeros_like(loss_phys)
-
-                else:
-                    from functions import physics_collocation_tau_L2_SH_neumann,semi_implicit_step_sh_neumann, energy_penalty_sh_neumann
-                    # ramps
-                    epoch_frac = ep / max(1, (config.EPOCHS - 1))
-                    w_scheme = 0.32 - 0.12 * epoch_frac
-                    w_lowk = 0.25 + 0.60 * (epoch_frac ** 2)
-                    # ---------- Neumann collocation residuals ----------
-                    tau_off = 1.0 / (2.0 * math.sqrt(5.0))
-                    l_tau1 = physics_collocation_tau_L2_SH_neumann(u_in_last, y_hat,tau=(0.5 - tau_off),normalize=True)
-                    l_tau2 = physics_collocation_tau_L2_SH_neumann(u_in_last, y_hat, tau=(0.5 + tau_off),normalize=True)
-                    l_mid_norm = 0.5 * (l_tau1 + l_tau2)
-                    # ---------- Neumann teacher step ----------
-                    u_si1 = semi_implicit_step_sh_neumann(u_in_last, config.DT,config.DX,config.EPSILON_PARAM, )
-                    # ---------- scheme consistency ----------
-                    loss_scheme1 = F.mse_loss(y_hat, u_si1)
-                    loss_scheme = 1e3 * w_scheme * loss_scheme1
-                    # ---------- Neumann low-k anchor ----------
-                    l_lowk = low_k_mse_neumann(y_hat, u_si1,frac=0.45)
-                    # ---------- Neumann SH physics mix ----------
-                    loss_physics = 1e-2 * ( l_mid_norm + w_lowk * l_lowk)
-                    # ---------- Neumann SH free-energy hinge ----------
-                    loss_energy = 0.3 * energy_penalty_sh_neumann( u_in_last,  y_hat, config.DX, config.EPSILON_PARAM)
-                    loss_phys =  loss_scheme + loss_physics + loss_energy
+                loss_energy = torch.zeros_like(loss_phys)
 
             elif USE_AC:
-
-                if config.Training_Type in ( "PurePhysics"):
-                    # ---------- first predicted step ----------
-                    y_first = y_pred[..., 0:1]
-                    loss_weak = 0.02 * ac_weak_fe_loss_tetra_neumann(u_in_last,y_first,config.DT,config.DX,config.EPS2,normalize=True, robust=False)
-                    loss_strong =  0.02 * ac_physical_gauss_single_step( u_in_last,y_first,config.DT, config.DX, config.EPS2)
-
-                    ''''
-                    # Non-Dimenssional physics
-                    u0_pde = nondim_u(u_in_last)
-                    u1_pde = nondim_u(y_first)
-                    dx_pde, dt_pde, eps2_pde, eps_pde = dim_params()
-                    loss_weak = 0.02 * ac_weak_fe_loss_tetra_neumann(u0_pde, u1_pde, dt_pde, dx_pde, eps2_pde, normalize=True, robust=False)
-                    loss_strong = 0.02 * ac_physical_gauss_single_step(u0_pde, u1_pde, dt_pde, dx_pde, eps2_pde)
-                    '''
-                    # ---------- total AC physics ----------
-                    loss_phys = (loss_strong + loss_weak)
-
-                else:
-                    from functions import physics_collocation_tau_L2_AC_neumann, semi_implicit_step_AC_neumann_simple, energy_penalty_AC_neumann
-                    # gentle ramps
-                    epoch_frac = ep / max(1, (config.EPOCHS - 1))
-                    w_scheme = 0.32 - 0.12 * epoch_frac
-                    w_lowk = 0.25 + 0.60 * (epoch_frac ** 2)
-                    # --- multi-step collocation with Neumann BC ---
-                    tau_off = 1.0 / (2.0 * math.sqrt(5.0))
-                    l_tau1 = physics_collocation_tau_L2_AC_neumann(u_in_last, y_hat, tau=(0.5 - tau_off))
-                    l_tau2 = physics_collocation_tau_L2_AC_neumann(u_in_last, y_hat, tau=(0.5 + tau_off))
-                    l_mid_norm = 0.5 * (l_tau1 + l_tau2)
-                    # --- Neumann semi-implicit teacher ---
-                    u_si_all = semi_implicit_step_AC_neumann_simple(u_in_last, config.DT, config.DX, config.EPS2)
-                    # --- scheme consistency ---
-                    loss_scheme1 = F.mse_loss(y_hat, u_si_all)
-                    loss_scheme = w_scheme * loss_scheme1
-                    # --- low-k and energy on first predicted frame ---
-                    y_first = y_hat[..., 0:1]
-                    u_si_first = u_si_all[..., 0:1]
-                    l_lowk = low_k_mse_neumann(y_first, u_si_first, frac=0.45)
-                    # --- physics mix ---
-                    loss_physics = 1e-3 * (l_mid_norm + w_lowk * l_lowk)
-                    # --- Neumann AC energy hinge ---
-                    loss_energy = 0.3 * energy_penalty_AC_neumann(u_in_last, y_first, config.DX, config.EPS2)
-                    # ---------- total AC physics ----------
-                    ## loss_roll + AC_residual_integral + 2 * loss_energy --> mean=4.1788e-02
-                    loss_phys = ( loss_scheme + loss_physics + loss_energy )
-
+                # ---------- first predicted step ----------
+                y_first = y_pred[..., 0:1]
+                loss_weak = 0.02 * ac_weak_fe_loss_tetra_neumann(u_in_last,y_first,config.DT,config.DX,config.EPS2,normalize=True, robust=False)
+                loss_strong =  0.02 * ac_physical_gauss_single_step( u_in_last,y_first,config.DT, config.DX, config.EPS2)
+                # ---------- total AC physics ----------
+                loss_phys = (loss_strong + loss_weak)
             # correct
             elif USE_CH:
-                if config.Training_Type in ("PurePhysics"):
-                    y_hat = y_pred
-                    # ---------- first predicted step ----------
-                    y_first = y_hat[..., 0:1]
-                    loss_strong_mixed = mixed_form_CH_physical_gauss_single_step( u_in_last, y_first, config.DT, config.DX, config.EPS2, tau=0.5, normalize=True, robust=False, mass_weight=0.0)
-                    loss_weak =  2.0 * ch_weak_fe_loss_tetra_neumann( u_in_last, y_first,config.DT,config.DX, config.EPS2,tau=0.5, normalize=True, robust=False, mass_weight=0.0)
-                    ''''
-                    # Non-Dimenssional physics
-                    u0_pde = nondim_u(u_in_last)
-                    u1_pde = nondim_u(y_first)
-                    dx_pde, dt_pde, eps2_pde, eps_pde = dim_params()
-
-                    loss_strong_mixed = mixed_form_CH_physical_gauss_single_step(u0_pde, u1_pde, dt_pde, dx_pde, eps2_pde, tau=0.5, normalize=True, robust=False, mass_weight=0.0)
-                    loss_weak = 2.0 * ch_weak_fe_loss_tetra_neumann(u0_pde, u1_pde, dt_pde, dx_pde, eps2_pde, tau=0.5, normalize=True, robust=False, mass_weight=0.0)
-                    '''
-
-                    # ---------- total CH physics ----------
-                    loss_phys = (0.02 * loss_strong_mixed +  0.02 * loss_weak)
-
-                else:
-                    from functions import physics_collocation_tau_L2_CH_neumann, semi_implicit_step_ch_neumann, \
-                        energy_penalty_CH_neumann
-
-                    # gentle ramps
-                    epoch_frac = ep / max(1, (config.EPOCHS - 1))
-                    w_scheme = 0.32 - 0.12 * epoch_frac
-                    w_lowk = 0.25 + 0.70 * (epoch_frac ** 2)
-
-                    # --- Neumann L2 Gauss-Lobatto collocation ---
-                    tau_off = 1.0 / (2.0 * math.sqrt(5.0))
-                    l_tau1 = physics_collocation_tau_L2_CH_neumann(u_in_last, y_hat, tau=(0.5 - tau_off))
-                    l_tau2 = physics_collocation_tau_L2_CH_neumann(u_in_last, y_hat, tau=(0.5 + tau_off))
-                    l_mid_norm = 0.5 * (l_tau1 + l_tau2)
-
-                    # --- Neumann semi-implicit teacher ---
-                    u_si1 = semi_implicit_step_ch_neumann(u_in_last, config.DT, config.DX, config.EPSILON_PARAM)
-
-                    # --- scheme consistency ---
-                    loss_scheme1 = F.mse_loss(y_hat, u_si1)
-                    loss_scheme = w_scheme * loss_scheme1
-
-                    # --- Neumann low-k anchor ---
-                    l_lowk = low_k_mse_neumann(y_hat, u_si1, frac=0.50)
-
-                    # --- Neumann CH physics mix ---
-                    loss_physics = 1e-3 * (l_mid_norm + w_lowk * l_lowk)
-
-                    # --- Neumann CH energy hinge ---
-                    loss_energy = 0.3 * energy_penalty_CH_neumann(u_in_last, y_hat, config.DX, config.EPSILON_PARAM)
-
-                    # ---------- total CH physics ----------
-                    loss_phys = loss_scheme + loss_physics + loss_energy
-
-            elif USE_PFC:
                 y_hat = y_pred
-                # --- PFC physics bundle (matches utilities) ---
-                epoch_frac = ep / max(1, (config.EPOCHS - 1))
-                w_scheme = 0.32 - 0.12 * epoch_frac
-                w_lowk = 0.25 + 0.60 * (epoch_frac ** 2)
-
-                # Residual
-                tau_off = 1.0 / (2.0 * math.sqrt(5.0))
-                l_tau1 = physics_collocation_tau_L2_PFC(u_in_last, y_hat, tau=(0.5 - tau_off))
-                l_tau2 = physics_collocation_tau_L2_PFC(u_in_last, y_hat, tau=(0.5 + tau_off))
-                l_mid_norm = 0.5 * (l_tau1 + l_tau2)
-
-                # Numerical Consistent
-                u_si1 = semi_implicit_step_pfc(u_in_last, config.DT, config.DX, config.EPSILON_PARAM)
-                loss_scheme1 = F.mse_loss(y_hat, u_si1)
-                loss_scheme = w_scheme * (loss_scheme1 )
-
-                # low-k anchor
-                l_lowk = low_k_mse(y_hat, u_si1, frac=0.45)
-
-                # physics mix
-                loss_phys = 1e-3 * ( l_mid_norm + w_lowk * l_lowk)
-
-                # energy hinge
-                loss_energy = 0.3 * energy_penalty_pfc(u_in_last, y_hat, config.DX, config.EPSILON_PARAM)
-            elif USE_MBE:
-
-                epoch_frac = ep / max(1, (config.EPOCHS - 1))
-                w_scheme = 0.32 - 0.12 * epoch_frac
-                w_lowk = 0.25 + 0.60 * (epoch_frac ** 2)
-
-                # residuals
-
-                tau_off = 1.0 / (2.0 * math.sqrt(5.0))
-                l_tau1 = physics_collocation_tau_L2_MBE(u_in_last, y_hat, tau=(0.5 - tau_off))
-                l_tau2 = physics_collocation_tau_L2_MBE(u_in_last, y_hat, tau=(0.5 + tau_off))
-
-                l_mid_norm = 0.5 * (l_tau1 + l_tau2)
-                # teacher consistency (+ one more gentle step)
-                u_si1 = semi_implicit_step_mbe(u_in_last, config.DT, config.DX, config.EPSILON_PARAM)
-                loss_scheme1 = F.mse_loss(y_hat, u_si1)
-                loss_scheme = w_scheme * ( loss_scheme1 )
-                # spectral low-k anchor
-                l_lowk = low_k_mse(y_hat, u_si1, frac=0.50)
-
-                loss_phys = 1e-3 * ( l_mid_norm + w_lowk * l_lowk)
-
-                loss_energy = 0.3 * energy_penalty_mbe(u_in_last, y_hat, config.DX, config.EPSILON_PARAM)
+                # ---------- first predicted step ----------
+                y_first = y_hat[..., 0:1]
+                loss_strong = mixed_form_CH_physical_gauss_single_step( u_in_last, y_first, config.DT, config.DX, config.EPS2, tau=0.5, normalize=True, robust=False, mass_weight=0.0)
+                loss_weak =  2.0 * ch_weak_fe_loss_tetra_neumann( u_in_last, y_first,config.DT,config.DX, config.EPS2,tau=0.5, normalize=True, robust=False, mass_weight=0.0)
+                # ---------- total CH physics ----------
+                loss_phys = (0.02 * loss_strong+  0.02 * loss_weak)
 
             else:
                 raise RuntimeError(f"Unknown/unsupported PROBLEM: {config.PROBLEM}")
@@ -673,8 +366,8 @@ def train_fno_hybrid(model, train_loader, test_loader, optimizer, scheduler, dev
             # accumulators Loss_strong, Loss_weak
             data_loss_acc  += loss_data.item()
             phys_loss_acc  += loss_phys.item()
-            Loss_strong += 0.0 # loss_strong_mixed.item() # l_mid_norm.item() #loss_strong # loss_strong.item() # l_mid_norm.item()
-            Loss_weak += 0.0 #loss_weak.item()
+            Loss_strong += loss_strong.item() # l_mid_norm.item() #loss_strong # loss_strong.item() # l_mid_norm.item()
+            Loss_weak += loss_weak.item()
             loss_uu += 0.0 #loss_u.item()
             loss_qq += 0.0 #loss_q.item()
             weak_uu += 0.0 #weak_u.item()
