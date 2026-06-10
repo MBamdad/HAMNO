@@ -16,19 +16,11 @@
 
 HAMNO learns a one-step solution operator from a short temporal history of three-dimensional phase fields:
 
-```math
-\mathcal{G}_{\theta}:
-\left(
-u^{n-T_{\mathrm{in}}+1},
-\ldots,
-u^{n-1},
-u^{n}
-\right)
-\longmapsto
-u_{\theta}^{n+1}.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathcal{G}_{\theta}:\left(u^{n-T_{\mathrm{in}}+1},\ldots,u^{n-1},u^{n}\right)\longmapsto&space;u_{\theta}^{n+1}." alt="HAMNO one-step operator" height="48">
+</p>
 
-Here, \(u^n\) denotes the phase-field solution at time step \(n\), and \(T_{\mathrm{in}}\) is the number of previous frames used as input. During evaluation, the learned one-step map is applied autoregressively to reconstruct the full time evolution.
+Here, <img src="https://latex.codecogs.com/svg.image?u^n" alt="u^n" height="17"> denotes the phase-field solution at time step <img src="https://latex.codecogs.com/svg.image?n" alt="n" height="14">, and <img src="https://latex.codecogs.com/svg.image?T_{\mathrm{in}}" alt="T_in" height="17"> is the number of previous frames used as input. During evaluation, the learned one-step map is applied autoregressively to reconstruct the full time evolution.
 
 The framework is developed for nonlinear, multi-scale, time-dependent PDEs where accurate long-horizon prediction requires both local feature resolution and global operator interaction.
 
@@ -49,13 +41,9 @@ HAMNO combines three key components:
 
 The central innovation is an **adaptive local--global gating mechanism**. Instead of combining local and global features with fixed weights, HAMNO learns data-dependent fusion weights at each spatial location:
 
-```math
-h_{\mathrm{fused}}(\mathbf{x})
-=
-\alpha(\mathbf{x})\,h_{\mathrm{local}}(\mathbf{x})
-+
-\beta(\mathbf{x})\,h_{\mathrm{global}}(\mathbf{x}).
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;h_{\mathrm{fused}}(\mathbf{x})=\alpha(\mathbf{x})\,h_{\mathrm{local}}(\mathbf{x})+\beta(\mathbf{x})\,h_{\mathrm{global}}(\mathbf{x})." alt="adaptive local-global fusion" height="48">
+</p>
 
 This allows the model to decide how much local or global information is needed depending on the evolving solution field and spatial scale.
 
@@ -65,100 +53,57 @@ This allows the model to decide how much local or global information is needed d
 
 The input history is written as
 
-```math
-\mathbf{U}_{\mathrm{in}}^{n}
-=
-\left[
-u^{n-T_{\mathrm{in}}+1},
-\ldots,
-u^{n-1},
-u^{n}
-\right].
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathbf{U}_{\mathrm{in}}^{n}=\left[u^{n-T_{\mathrm{in}}+1},\ldots,u^{n-1},u^{n}\right]." alt="input history" height="44">
+</p>
 
 HAMNO first lifts the input history and spatial coordinates into a latent feature representation:
 
-```math
-v_0(\mathbf{x})
-=
-P
-\left(
-\mathbf{U}_{\mathrm{in}}^{n}(\mathbf{x}),
-\mathbf{x}
-\right),
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;v_0(\mathbf{x})=P\left(\mathbf{U}_{\mathrm{in}}^{n}(\mathbf{x}),\mathbf{x}\right)," alt="lifting map" height="46">
+</p>
 
-where \(P\) is a coordinate-aware lifting map and \(\mathbf{x}=(x,y,z)\) denotes the spatial coordinate.
+where <img src="https://latex.codecogs.com/svg.image?P" alt="P" height="16"> is a coordinate-aware lifting map and <img src="https://latex.codecogs.com/svg.image?\mathbf{x}=(x,y,z)" alt="x=(x,y,z)" height="17"> denotes the spatial coordinate.
 
 Each HAMNO block uses two complementary operator branches. The local branch captures nearby spatial patterns:
 
-```math
-h_{\mathrm{local}}
-=
-\mathcal{K}_{\mathrm{local}}(h),
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;h_{\mathrm{local}}=\mathcal{K}_{\mathrm{local}}(h)," alt="local operator" height="42">
+</p>
 
 while the global branch captures long-range spectral interactions:
 
-```math
-h_{\mathrm{global}}
-=
-\mathcal{K}_{\mathrm{global}}(h).
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;h_{\mathrm{global}}=\mathcal{K}_{\mathrm{global}}(h)." alt="global operator" height="42">
+</p>
 
 The two branches are then combined using adaptive local--global fusion:
 
-```math
-h_{\mathrm{fused}}
-=
-\alpha\,h_{\mathrm{local}}
-+
-\beta\,h_{\mathrm{global}}.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;h_{\mathrm{fused}}=\alpha\,h_{\mathrm{local}}+\beta\,h_{\mathrm{global}}." alt="fused representation" height="42">
+</p>
 
 The fused representation is passed through a channel-mixing operator and added back through a residual update:
 
-```math
-v_{\ell}^{\prime}
-=
-v_{\ell}
-+
-\mathcal{M}
-\left(
-h_{\mathrm{fused}}
-\right).
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;v_{\ell}^{\prime}=v_{\ell}+\mathcal{M}\left(h_{\mathrm{fused}}\right)." alt="first residual update" height="44">
+</p>
 
 A second residual update applies nonlinear feature mixing:
 
-```math
-v_{\ell+1}
-=
-v_{\ell}^{\prime}
-+
-\Psi_{\ell}
-\left(
-\mathrm{Norm}
-\left(
-v_{\ell}^{\prime}
-\right)
-\right).
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;v_{\ell+1}=v_{\ell}^{\prime}+\Psi_{\ell}\left(\mathrm{Norm}\left(v_{\ell}^{\prime}\right)\right)." alt="second residual update" height="46">
+</p>
 
-Here, \(\mathcal{M}\) is a channel-mixing operator and \(\Psi_{\ell}\) is a nonlinear pointwise feature transformation.
+Here, <img src="https://latex.codecogs.com/svg.image?\mathcal{M}" alt="M" height="17"> is a channel-mixing operator and <img src="https://latex.codecogs.com/svg.image?\Psi_{\ell}" alt="Psi_l" height="17"> is a nonlinear pointwise feature transformation.
 
 The encoder progressively reduces the spatial resolution to capture coarse global structures, while the decoder reconstructs fine-scale details using upsampling and skip connections. The final prediction is obtained by
 
-```math
-u_{\theta}^{n+1}(\mathbf{x})
-=
-Q
-\left(
-v_{\mathrm{final}}(\mathbf{x})
-\right),
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;u_{\theta}^{n+1}(\mathbf{x})=Q\left(v_{\mathrm{final}}(\mathbf{x})\right)," alt="final prediction" height="46">
+</p>
 
-where \(Q\) is the final projection head.
+where <img src="https://latex.codecogs.com/svg.image?Q" alt="Q" height="16"> is the final projection head.
 
 ---
 
@@ -184,25 +129,17 @@ In summary, HAMNO combines the strengths of Fourier neural operators, convolutio
 
 **PI-HAMNO** extends HAMNO by introducing a **multi-objective physics regularization strategy**. Instead of relying only on data fitting, the model is trained with both data loss and complementary physics-based constraints:
 
-```math
-\mathcal{L}_{\mathrm{total}}
-=
-(1-\lambda)\mathcal{L}_{\mathrm{data}}
-+
-\lambda\mathcal{L}_{\mathrm{phys}},
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathcal{L}_{\mathrm{total}}=(1-\lambda)\mathcal{L}_{\mathrm{data}}+\lambda\mathcal{L}_{\mathrm{phys}}," alt="total loss" height="46">
+</p>
 
-where <img src="https://latex.codecogs.com/svg.image?\lambda\in[0,1]" alt="\lambda\in[0,1]" height="16"> controls the balance between data-driven learning and physics-informed regularization.
+where <img src="https://latex.codecogs.com/svg.image?\lambda\in[0,1]" alt="lambda in [0,1]" height="17"> controls the balance between data-driven learning and physics-informed regularization.
 
 The physics loss combines two complementary PDE residuals:
 
-```math
-\mathcal{L}_{\mathrm{phys}}
-=
-\mathcal{L}_{\mathrm{strong}}
-+
-\mathcal{L}_{\mathrm{weak}}.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathcal{L}_{\mathrm{phys}}=\mathcal{L}_{\mathrm{strong}}+\mathcal{L}_{\mathrm{weak}}." alt="physics loss" height="44">
+</p>
 
 This strong--weak coupling provides two different views of the same governing law: the strong form enforces local differential consistency, while the weak form enforces variational consistency over finite elements.
 
@@ -210,34 +147,17 @@ This strong--weak coupling provides two different views of the same governing la
 
 In the **strong-form** part, the PDE residual is evaluated on the structured nodal solution field. Spatial derivatives are computed using finite-difference differential operators, and the one-step residual is written as
 
-```math
-R_{\mathrm{FD}}
-=
-\frac{
-u_{\theta}^{n+1}
--
-u^{n}
-}{
-\Delta t
-}
--
-\mathcal{N}
-\left(
-u_{\theta}^{n+1}
-\right),
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;R_{\mathrm{FD}}=\frac{u_{\theta}^{n+1}-u^{n}}{\Delta&space;t}-\mathcal{N}\left(u_{\theta}^{n+1}\right)," alt="strong-form residual" height="56">
+</p>
 
-where <img src="https://latex.codecogs.com/svg.image?\mathcal{N}(\cdot)" alt="\mathcal{N}(\cdot)" height="18"> denotes the spatial PDE operator.
+where <img src="https://latex.codecogs.com/svg.image?\mathcal{N}(\cdot)" alt="N operator" height="18"> denotes the spatial PDE operator.
 
 The strong-form loss minimizes the domain-integrated squared residual. In the implementation, each cubic grid cell is decomposed into tetrahedra, and the residual integral is evaluated using tetrahedral quadrature:
 
-```math
-\mathcal{L}_{\mathrm{strong}}
-\approx
-\int_{\Omega}
-R_{\mathrm{FD}}^2
-\,d\mathbf{x}.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathcal{L}_{\mathrm{strong}}\approx\int_{\Omega}R_{\mathrm{FD}}^2\,d\mathbf{x}." alt="strong-form loss" height="56">
+</p>
 
 This term directly penalizes local PDE imbalance and is sensitive to sharp gradients, interfacial motion, and high-frequency residual errors.
 
@@ -245,37 +165,19 @@ This term directly penalizes local PDE imbalance and is sensitive to sharp gradi
 
 In the **weak-form** part, the PDE is enforced in a variational sense. The residual is multiplied by finite-element test functions and integrated over the domain:
 
-```math
-\int_{\Omega}
-\left(
-u_t
--
-\mathcal{N}(u)
-\right)
-v
-\,d\Omega
-=
-0.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\int_{\Omega}\left(u_t-\mathcal{N}(u)\right)v\,d\Omega=0." alt="weak-form residual" height="56">
+</p>
 
 The domain is decomposed into tetrahedral elements, and the weak residual is assembled using P1 tetrahedral finite-element basis functions. For each tetrahedron <img src="https://latex.codecogs.com/svg.image?K" alt="K" height="16"> and each local test function, an element-wise residual <img src="https://latex.codecogs.com/svg.image?r_i^K" alt="r_i^K" height="18"> is computed. The weak-form loss minimizes the mean squared residual over all tetrahedra and local basis functions:
 
-```math
-\mathcal{L}_{\mathrm{weak}}
-=
-\frac{1}{N_e}
-\sum_{K}
-\sum_{i}
-\left(
-r_i^K
-\right)^2.
-```
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?\Large&space;\mathcal{L}_{\mathrm{weak}}=\frac{1}{N_e}\sum_{K}\sum_{i}\left(r_i^K\right)^2." alt="weak-form loss" height="56">
+</p>
 
 This variational formulation improves global physical consistency, numerical conditioning, and compatibility with homogeneous Neumann boundary conditions.
 
 This dual-residual formulation establishes a complementary multi-objective physics constraint, where the strong form enforces local differential consistency and the weak form promotes element-wise variational consistency within a unified training objective.
-
-
 
 ---
 
