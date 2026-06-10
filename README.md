@@ -14,9 +14,9 @@
 
 ## Overview
 
-HAMNO learns the one-step solution operator
+HAMNO learns a one-step solution operator from a short temporal history of three-dimensional phase fields:
 
-$$
+```math
 \mathcal{G}_{\theta}:
 \left(
 u^{n-T_{\mathrm{in}}+1},
@@ -26,9 +26,9 @@ u^{n}
 \right)
 \longmapsto
 u_{\theta}^{n+1}.
-$$
+```
 
-Here, a short temporal history of 3D phase fields is used to predict the next state. During evaluation, this learned one-step map is applied autoregressively to reconstruct the full time evolution.
+Here, \(u^n\) denotes the phase-field solution at time step \(n\), and \(T_{\mathrm{in}}\) is the number of previous frames used as input. During evaluation, the learned one-step map is applied autoregressively to reconstruct the full time evolution.
 
 The framework is developed for nonlinear, multi-scale, time-dependent PDEs where accurate long-horizon prediction requires both local feature resolution and global operator interaction.
 
@@ -49,13 +49,13 @@ HAMNO combines three key components:
 
 The central innovation is an **adaptive local--global gating mechanism**. Instead of combining local and global features with fixed weights, HAMNO learns data-dependent fusion weights at each spatial location:
 
-$$
+```math
 h_{\mathrm{fused}}(\mathbf{x})
 =
 \alpha(\mathbf{x})\,h_{\mathrm{local}}(\mathbf{x})
 +
 \beta(\mathbf{x})\,h_{\mathrm{global}}(\mathbf{x}).
-$$
+```
 
 This allows the model to decide how much local or global information is needed depending on the evolving solution field and spatial scale.
 
@@ -63,53 +63,62 @@ This allows the model to decide how much local or global information is needed d
 
 ## HAMNO architecture
 
-HAMNO first lifts the input history and spatial coordinates into a latent feature space:
+The input history is written as
 
-$$
-v_0(\mathbf{x})
-=
-P\left(
-\mathbf{U}_{\mathrm{in}}^n(\mathbf{x}), \mathbf{x}
-\right),
-$$
-
-where
-
-$$
-\mathbf{U}_{\mathrm{in}}^n
+```math
+\mathbf{U}_{\mathrm{in}}^{n}
 =
 \left[
 u^{n-T_{\mathrm{in}}+1},
 \ldots,
+u^{n-1},
 u^{n}
 \right].
-$$
+```
 
-Each HAMNO block applies two complementary operator branches:
+HAMNO first lifts the input history and spatial coordinates into a latent feature representation:
 
-$$
+```math
+v_0(\mathbf{x})
+=
+P
+\left(
+\mathbf{U}_{\mathrm{in}}^{n}(\mathbf{x}),
+\mathbf{x}
+\right),
+```
+
+where \(P\) is a coordinate-aware lifting map and \(\mathbf{x}=(x,y,z)\) denotes the spatial coordinate.
+
+Each HAMNO block uses two complementary operator branches. The local branch captures nearby spatial patterns:
+
+```math
 h_{\mathrm{local}}
 =
 \mathcal{K}_{\mathrm{local}}(h),
-\qquad
+```
+
+while the global branch captures long-range spectral interactions:
+
+```math
 h_{\mathrm{global}}
 =
 \mathcal{K}_{\mathrm{global}}(h).
-$$
+```
 
-The local branch captures nearby spatial patterns, while the global branch captures long-range spectral interactions. The two branches are then adaptively fused using the learned gating mechanism:
+The two branches are then combined using adaptive local--global fusion:
 
-$$
+```math
 h_{\mathrm{fused}}
 =
-\alpha h_{\mathrm{local}}
+\alpha\,h_{\mathrm{local}}
 +
-\beta h_{\mathrm{global}}.
-$$
+\beta\,h_{\mathrm{global}}.
+```
 
-The fused representation is updated through residual connections:
+The fused representation is passed through a channel-mixing operator and added back through a residual update:
 
-$$
+```math
 v_{\ell}^{\prime}
 =
 v_{\ell}
@@ -117,10 +126,12 @@ v_{\ell}
 \mathcal{M}
 \left(
 h_{\mathrm{fused}}
-\right),
-$$
+\right).
+```
 
-$$
+A second residual update applies nonlinear feature mixing:
+
+```math
 v_{\ell+1}
 =
 v_{\ell}^{\prime}
@@ -131,21 +142,23 @@ v_{\ell}^{\prime}
 \left(
 v_{\ell}^{\prime}
 \right)
-\right),
-$$
+\right).
+```
 
-where `M` is a channel-mixing operator and `Ψ` is a nonlinear pointwise feature transformation.
+Here, \(\mathcal{M}\) is a channel-mixing operator and \(\Psi_{\ell}\) is a nonlinear pointwise feature transformation.
 
-The encoder progressively reduces spatial resolution to capture coarse global structures, while the decoder reconstructs fine-scale details using upsampling and skip connections. The final prediction is obtained by
+The encoder progressively reduces the spatial resolution to capture coarse global structures, while the decoder reconstructs fine-scale details using upsampling and skip connections. The final prediction is obtained by
 
-$$
+```math
 u_{\theta}^{n+1}(\mathbf{x})
 =
 Q
 \left(
 v_{\mathrm{final}}(\mathbf{x})
-\right).
-$$
+\right),
+```
+
+where \(Q\) is the final projection head.
 
 ---
 
@@ -171,31 +184,39 @@ In summary, HAMNO combines the strengths of Fourier neural operators, convolutio
 
 **PI-HAMNO** extends HAMNO by adding physics-based regularization during training. The total loss is
 
-$$
+```math
 \mathcal{L}_{\mathrm{total}}
 =
 (1-\lambda)\mathcal{L}_{\mathrm{data}}
 +
 \lambda\mathcal{L}_{\mathrm{phys}},
-$$
+```
 
-where `λ` controls the balance between data fitting and physics enforcement.
+where \(\lambda\in[0,1]\) controls the balance between data fitting and physics enforcement.
 
-The physics loss combines two complementary PDE constraints:
+The physics loss combines strong-form and weak-form PDE constraints:
 
-$$
+```math
 \mathcal{L}_{\mathrm{phys}}
 =
 \mathcal{L}_{\mathrm{strong}}
 +
 \mathcal{L}_{\mathrm{weak}}.
-$$
+```
 
 ### Strong-form residual
 
-The strong-form residual directly penalizes the PDE defect in physical coordinates:
+The strong-form residual directly penalizes the PDE defect in physical coordinates. For a general PDE,
 
-$$
+```math
+u_t
+=
+\mathcal{N}(u),
+```
+
+the one-step strong-form residual is
+
+```math
 R_{\mathrm{FD}}
 =
 \frac{
@@ -210,25 +231,25 @@ u^{n}
 \left(
 u_{\theta}^{n+1}
 \right).
-$$
+```
 
-The corresponding loss is computed by integrating the squared residual over the domain:
+The corresponding strong-form loss is computed by integrating the squared residual over the physical domain:
 
-$$
+```math
 \mathcal{L}_{\mathrm{strong}}
 \approx
 \int_{\Omega}
 R_{\mathrm{FD}}^2
 \,d\mathbf{x}.
-$$
+```
 
 This term improves local PDE consistency and is sensitive to sharp gradients, interfaces, and high-frequency errors.
 
 ### Weak-form residual
 
-The weak-form residual enforces the PDE in a variational sense:
+The weak-form residual enforces the PDE in a variational sense. The residual equation is multiplied by a test function \(v\) and integrated over the domain:
 
-$$
+```math
 \int_{\Omega}
 \left(
 u_t
@@ -239,20 +260,20 @@ v
 \,d\Omega
 =
 0.
-$$
+```
 
-In PI-HAMNO, the domain is decomposed into tetrahedral elements, and the weak residual is assembled using finite-element test functions and centroid-based quadrature:
+In PI-HAMNO, the domain is decomposed into tetrahedral elements. The weak residual is assembled using finite-element test functions and centroid-based tetrahedral quadrature:
 
-$$
+```math
 \mathcal{L}_{\mathrm{weak}}
 =
 \frac{1}{N_e}
-\sum_K
-\sum_i
+\sum_{K}
+\sum_{i}
 \left(
 r_i^K
 \right)^2.
-$$
+```
 
 The strong form controls local differential errors, while the weak form improves global variational consistency, numerical conditioning, and compatibility with homogeneous Neumann boundary conditions.
 
