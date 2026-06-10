@@ -182,7 +182,7 @@ In summary, HAMNO combines the strengths of Fourier neural operators, convolutio
 
 ## Physics-informed extension: PI-HAMNO
 
-**PI-HAMNO** extends HAMNO by adding physics-based regularization during training. The total loss is
+**PI-HAMNO** extends HAMNO by introducing a **multi-objective physics regularization strategy**. Instead of relying only on data fitting, the model is trained with both data loss and complementary physics-based constraints:
 
 ```math
 \mathcal{L}_{\mathrm{total}}
@@ -192,9 +192,9 @@ In summary, HAMNO combines the strengths of Fourier neural operators, convolutio
 \lambda\mathcal{L}_{\mathrm{phys}},
 ```
 
-where \(\lambda\in[0,1]\) controls the balance between data fitting and physics enforcement.
+where (\lambda\in[0,1]) controls the balance between data-driven learning and physics-informed regularization.
 
-The physics loss combines strong-form and weak-form PDE constraints:
+The physics loss combines two complementary PDE residuals:
 
 ```math
 \mathcal{L}_{\mathrm{phys}}
@@ -204,17 +204,11 @@ The physics loss combines strong-form and weak-form PDE constraints:
 \mathcal{L}_{\mathrm{weak}}.
 ```
 
+This strong--weak coupling provides two different views of the same governing law: the strong form enforces local differential consistency, while the weak form enforces variational consistency over finite elements.
+
 ### Strong-form residual
 
-The strong-form residual directly penalizes the PDE defect in physical coordinates. For a general PDE,
-
-```math
-u_t
-=
-\mathcal{N}(u),
-```
-
-the one-step strong-form residual is
+In the **strong-form** part, the PDE residual is evaluated on the structured nodal solution field. Spatial derivatives are computed using finite-difference differential operators, and the one-step residual is written as
 
 ```math
 R_{\mathrm{FD}}
@@ -230,10 +224,12 @@ u^{n}
 \mathcal{N}
 \left(
 u_{\theta}^{n+1}
-\right).
+\right),
 ```
 
-The corresponding strong-form loss is computed by integrating the squared residual over the physical domain:
+where (\mathcal{N}(\cdot)) denotes the spatial PDE operator.
+
+The strong-form loss minimizes the domain-integrated squared residual. In the implementation, each cubic grid cell is decomposed into tetrahedra, and the residual integral is evaluated using tetrahedral quadrature:
 
 ```math
 \mathcal{L}_{\mathrm{strong}}
@@ -243,11 +239,11 @@ R_{\mathrm{FD}}^2
 \,d\mathbf{x}.
 ```
 
-This term improves local PDE consistency and is sensitive to sharp gradients, interfaces, and high-frequency errors.
+This term directly penalizes local PDE imbalance and is sensitive to sharp gradients, interfacial motion, and high-frequency residual errors.
 
 ### Weak-form residual
 
-The weak-form residual enforces the PDE in a variational sense. The residual equation is multiplied by a test function \(v\) and integrated over the domain:
+In the **weak-form** part, the PDE is enforced in a variational sense. The residual is multiplied by finite-element test functions and integrated over the domain:
 
 ```math
 \int_{\Omega}
@@ -262,7 +258,7 @@ v
 0.
 ```
 
-In PI-HAMNO, the domain is decomposed into tetrahedral elements. The weak residual is assembled using finite-element test functions and centroid-based tetrahedral quadrature:
+The domain is decomposed into tetrahedral elements, and the weak residual is assembled using P1 tetrahedral finite-element basis functions. For each tetrahedron (K) and each local test function, an element-wise residual (r_i^K) is computed. The weak-form loss minimizes the mean squared residual over all tetrahedra and local basis functions:
 
 ```math
 \mathcal{L}_{\mathrm{weak}}
@@ -275,7 +271,10 @@ r_i^K
 \right)^2.
 ```
 
-The strong form controls local differential errors, while the weak form improves global variational consistency, numerical conditioning, and compatibility with homogeneous Neumann boundary conditions.
+This variational formulation improves global physical consistency, numerical conditioning, and compatibility with homogeneous Neumann boundary conditions.
+
+Together, the strong-form and weak-form residuals provide a complementary multi-objective constraint: the strong form controls local differential errors, while the weak form improves element-wise variational consistency.
+
 
 ---
 
