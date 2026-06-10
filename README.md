@@ -192,7 +192,7 @@ In summary, HAMNO combines the strengths of Fourier neural operators, convolutio
 \lambda\mathcal{L}_{\mathrm{phys}},
 ```
 
-where (\lambda\in[0,1]) controls the balance between data-driven learning and physics-informed regularization.
+where <img src="https://latex.codecogs.com/svg.image?\lambda\in[0,1]" alt="\lambda\in[0,1]" height="16"> controls the balance between data-driven learning and physics-informed regularization.
 
 The physics loss combines two complementary PDE residuals:
 
@@ -227,7 +227,7 @@ u_{\theta}^{n+1}
 \right),
 ```
 
-where (\mathcal{N}(\cdot)) denotes the spatial PDE operator.
+where <img src="https://latex.codecogs.com/svg.image?\mathcal{N}(\cdot)" alt="\mathcal{N}(\cdot)" height="18"> denotes the spatial PDE operator.
 
 The strong-form loss minimizes the domain-integrated squared residual. In the implementation, each cubic grid cell is decomposed into tetrahedra, and the residual integral is evaluated using tetrahedral quadrature:
 
@@ -258,7 +258,7 @@ v
 0.
 ```
 
-The domain is decomposed into tetrahedral elements, and the weak residual is assembled using P1 tetrahedral finite-element basis functions. For each tetrahedron (K) and each local test function, an element-wise residual (r_i^K) is computed. The weak-form loss minimizes the mean squared residual over all tetrahedra and local basis functions:
+The domain is decomposed into tetrahedral elements, and the weak residual is assembled using P1 tetrahedral finite-element basis functions. For each tetrahedron <img src="https://latex.codecogs.com/svg.image?K" alt="K" height="16"> and each local test function, an element-wise residual <img src="https://latex.codecogs.com/svg.image?r_i^K" alt="r_i^K" height="18"> is computed. The weak-form loss minimizes the mean squared residual over all tetrahedra and local basis functions:
 
 ```math
 \mathcal{L}_{\mathrm{weak}}
@@ -273,7 +273,8 @@ r_i^K
 
 This variational formulation improves global physical consistency, numerical conditioning, and compatibility with homogeneous Neumann boundary conditions.
 
-Together, the strong-form and weak-form residuals provide a complementary multi-objective constraint: the strong form controls local differential errors, while the weak form improves element-wise variational consistency.
+This dual-residual formulation establishes a complementary multi-objective physics constraint, where the strong form enforces local differential consistency and the weak form promotes element-wise variational consistency within a unified training objective.
+
 
 
 ---
