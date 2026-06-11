@@ -233,41 +233,19 @@ pip install -r requirements.txt
 If you are using a GPU, make sure that your PyTorch installation matches your CUDA version.
 
 ---
-
 ## How to run
 
-First, edit `config.py` and select the desired problem and model:
+First, download the required dataset from Zenodo:
+
+- **AC3D Dataset**: [DOI: 10.5281/zenodo.20645033](https://doi.org/10.5281/zenodo.20645033)
+- **CH3D Dataset**: [DOI: 10.5281/zenodo.20645446](https://doi.org/10.5281/zenodo.20645446)
+- **SH3D Dataset**: [DOI: 10.5281/zenodo.20645600](https://doi.org/10.5281/zenodo.20645600)
+
+Then, edit `config.py` and select the desired problem and model:
 
 ```python
-PROBLEM = 'AC3D'
+PROBLEM = 'AC3D'   # Options: 'AC3D', 'CH3D', 'SH3D'
 MODEL = 'HAMNO3d'
-```
-
-Then run:
-
-```bash
-python main.py
-```
-
-The code will:
-
-1. Load the selected 3D phase-field dataset.
-2. Build the selected neural-operator model.
-3. Train the model using the configured loss setting.
-4. Evaluate long-horizon autoregressive rollout.
-5. Save results and trained checkpoints.
-
----
-
-## Data path
-
-The dataset path is set in `config.py`:
-
-```python
-MAT_DATA_PATH = "path/to/your/data.mat"
-```
-
-Each `.mat` file should contain the phase-field trajectories used for training and testing.
 
 ---
 
